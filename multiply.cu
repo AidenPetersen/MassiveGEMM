@@ -1,5 +1,6 @@
 #include <cuda_runtime.h>
 #include <cuda.h>
+#include "matrix.h"
 
 __global__ void __multiply__ (const float *a, float *b, int n) {
     const int i = threadIdx.x + blockIdx.x * blockDim.x;

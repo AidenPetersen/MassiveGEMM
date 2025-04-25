@@ -18,10 +18,10 @@ all: $(EXEC)
 $(EXEC): $(CUDAOBJ) $(OBJ)
 	$(MPICC) $(CFLAGS) $(LDFLAGS) -o$@ $^
 
-%.o: %.cpp
+%.o: %.cu
 	$(NVCC) $(CUDAFLAGS) -c $^ -o $@
 
-%.o: %.cu
+%.o: %.cpp
 	$(MPICC) $(CFLAGS) -c $^ -o$@
 
 clean:

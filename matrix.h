@@ -4,6 +4,8 @@
 #include <stdlib.h>
 
 #define BLOCK_SIZE 4096
+#define BLOCK_TOTAL_SIZE BLOCK_SIZE*BLOCK_SIZE
+
 
 // Structured like this so we can copy over contiguous memory to the gpu
 typedef struct {
@@ -22,7 +24,8 @@ typedef struct {
 
 
 void bm_create(block_matrix_t *bm, int m, int n);
-void bm_fill_matrix(block_matrix_t *block_matrix);
+void bm_fill_matrix(block_matrix_t *bm, int seed);
 void bm_free(block_matrix_t *bm);
+
 
 
