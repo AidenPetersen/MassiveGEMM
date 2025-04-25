@@ -1,0 +1,31 @@
+NVCC=nvcc
+MPICC=mpicxx
+
+CUDASRC=multiply.cu
+CUDAOBJ=$(CUDASRC:.cu=.o)
+CUDAFLAGS=
+
+SRC=main.cpp matrix.cpp
+OBJ=$(SRC:.cpp=.o)
+CFLAGS=-Wall -Wextra 
+
+LDFLAGS=-lcudart
+
+EXEC=mmult
+
+all: $(EXEC)
+
+$(EXEC): $(CUDAOBJ) $(OBJ)
+	$(MPICC) $(CFLAGS) $(LDFLAGS) -o$@ $^
+
+%.o: %.cpp
+	$(NVCC) $(CUDAFLAGS) -c $^ -o $@
+
+%.o: %.cu
+	$(MPICC) $(CFLAGS) -c $^ -o$@
+
+clean:
+	rm -f $(CUDAOBJ) $(OBJ) $(EXEC)
+
+
+
