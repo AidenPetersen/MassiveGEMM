@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <time.h>
+#include "gemm.h"
 #include "mpi_message.h"
 #include "matrix.h"
 
@@ -11,14 +13,14 @@
 #define CLIENT_RANK 1
 #define NUM_ROLES 2
 // CUDA, CLIENT, and SERVER functions
-#define TEST_ROWS BLOCK_SIZE * 8
-#define TEST_COLS BLOCK_SIZE * 8
+#define TEST_ROWS BLOCK_SIZE * 4
+#define TEST_COLS BLOCK_SIZE * 4
 #define TEST_SEED 1
 
-MPI_Comm shmcomm;
 
-// extern kernel
-void launch_multiply(const float *a, float *b);
+
+// Global vars
+MPI_Comm shmcomm;
 
 void server_inc_ctrs(const block_matrix_t* bm, int* row_ctr, int* col_ctr){
 	if(*row_ctr < 0){
@@ -40,6 +42,7 @@ void server(){
 	std::map<int, int> running_wls;
 	block_matrix_t final_bm;
 	bm_create(&final_bm, TEST_ROWS, TEST_COLS);
+	printf("m_blocks n_blocks %d %d", final_bm.m_blocks, final_bm.n_blocks);
 	int row_ctr = 0;
 	int col_ctr = 0;
 
@@ -97,7 +100,7 @@ void client(int world_rank, int local_rank){
 		int row_ctr2 = srow;
 		int col_ctr2 = scol;
 
-		printf("CLIENT %d: Received WL ROW: %d COL: %d", world_rank, srow, scol);
+		printf("CLIENT %d: Received WL ROW: %d COL: %d\n", world_rank, srow, scol);
 
 		// Exit case
 		if (srow == -1 || scol == -1) {
@@ -122,6 +125,7 @@ void client(int world_rank, int local_rank){
 
 		// Handles copying data, commanding cuda process to copy, and 
 		for(int i = 0; i < bm.m_blocks; i++){
+			printf("CLIENT %d Multiplying tiles %d,%d and %d,%d\n", world_rank, row_ctr1, col_ctr1, row_ctr2, col_ctr2);
 			// Determines which buffer to prefetch in
 			int prefetch_buffer = (i + 1) % 2;
 			// copy data over with and cudaMemCpy (non async)
@@ -129,26 +133,46 @@ void client(int world_rank, int local_rank){
 			if(i == 0){
 				double* block_addrA = bm.blocks[row_ctr1 * bm.n_blocks + col_ctr1];
 				double* block_addrB = bm.blocks[row_ctr2 * bm.n_blocks + col_ctr2];
+				clock_t before = clock();
 				cudaMemcpy(tile_A1, block_addrA, BLOCK_TOTAL_SIZE * sizeof(double), cudaMemcpyHostToDevice);
 				cudaMemcpy(tile_B1, block_addrB, BLOCK_TOTAL_SIZE * sizeof(double), cudaMemcpyHostToDevice);
+				clock_t difference = clock() - before;
+				int msec = difference * 1000 / CLOCKS_PER_SEC;
+				printf("CLIENT %d: GPU COPY TIME %d ms\n", world_rank, msec);
 			}
 
 			client_inc_tile_ctrs(&bm, &row_ctr1, &col_ctr2, &row_ctr2, &col_ctr2);
-			// Prefetch blocks with cudaMemCpyAsync
-			if(!(i >= bm.m_blocks)){
+			// Prefetch blocks with cudaMemCpyAsync and launch kernel on other tiles
 
-				double* block_addrA = bm.blocks[row_ctr1 * bm.n_blocks + col_ctr1];
-				double* block_addrB = bm.blocks[row_ctr2 * bm.n_blocks + col_ctr2];
-				if(prefetch_buffer == 0){
+			double* block_addrA = bm.blocks[row_ctr1 * bm.n_blocks + col_ctr1];
+			double* block_addrB = bm.blocks[row_ctr2 * bm.n_blocks + col_ctr2];
+			if(prefetch_buffer == 0){
+				if(!(i >= bm.m_blocks)){
 					cudaMemcpyAsync(tile_A1, block_addrA, BLOCK_TOTAL_SIZE * sizeof(double), cudaMemcpyHostToDevice);
 					cudaMemcpyAsync(tile_B1, block_addrB, BLOCK_TOTAL_SIZE * sizeof(double), cudaMemcpyHostToDevice);
-				} else{
+				}
+				clock_t before = clock();
+				launch_gemm(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE, tile_A2, tile_B2, tile_C);
+				clock_t difference = clock() - before;
+				int msec = difference * 1000 / CLOCKS_PER_SEC;
+				printf("CLIENT %d: GPU GEMM TIME %d ms\n",world_rank, msec);
+			} else{
+				if(!(i >= bm.m_blocks)){
 					cudaMemcpyAsync(tile_A2, block_addrA, BLOCK_TOTAL_SIZE * sizeof(double), cudaMemcpyHostToDevice);
 					cudaMemcpyAsync(tile_B2, block_addrB, BLOCK_TOTAL_SIZE * sizeof(double), cudaMemcpyHostToDevice);
 				}
+
+				launch_gemm(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE, tile_A1, tile_B1, tile_C);
 			}
-			// Launch Kernel
 		}
+		cudaMemcpy(output_block, tile_C, BLOCK_TOTAL_SIZE * sizeof(double), cudaMemcpyDeviceToHost);
+		
+		msg[0] = CLIENT_RETURN_WL;
+		printf("CLIENT %d: Sending data ping\n", world_rank);
+		MPI_Send(msg, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+		printf("CLIENT %d: Sending data block\n", world_rank);
+		MPI_Send(output_block, BLOCK_TOTAL_SIZE, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+
 	}
 	bm_free(&bm);
 }

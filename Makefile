@@ -25,7 +25,7 @@ $(EXEC): $(CUDAOBJ) $(OBJ)
 	$(MPICC) $(CFLAGS) -c $^ -o$@
 
 clean:
-	rm -f $(CUDAOBJ) $(OBJ) $(EXEC)
+	rm -f *.o $(EXEC)
 
 
 
