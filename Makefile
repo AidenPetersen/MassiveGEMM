@@ -1,7 +1,7 @@
 NVCC=nvcc
 MPICC=mpicxx
 
-CUDASRC=multiply.cu
+CUDASRC=gemm.cu
 CUDAOBJ=$(CUDASRC:.cu=.o)
 CUDAFLAGS=
 
