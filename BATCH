@@ -8,7 +8,7 @@
 #SBATCH --nodes=2   # number of nodes
 #SBATCH --ntasks-per-node=2   # We use 2 tasks per node for this workload
 #SBATCH --job-name="cuda_gemm"
-#SBATCH --mem=16G   # maximum memory per node
+#SBATCH --mem=96G   # maximum memory per node
 #SBATCH --partition=instruction
 #SBATCH --gres=gpu:a100:1
 
@@ -16,7 +16,7 @@
 
 module load cuda openmpi
 
-# run 2 threads per node
-mpirun -np 4 ./mmult
+# run 3 threads per node
+mpirun -np 2 ./mmult
 echo $(hostname)
 

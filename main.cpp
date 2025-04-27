@@ -13,8 +13,9 @@
 
 #define SERVER_RANK 0
 #define CLIENT_RANK 1
-#define NUM_ROLES 2
-// CUDA, CLIENT, and SERVER functions
+#define DATA_SERVER_RANK 2
+
+#define NUM_ROLES 3
 #define TEST_ROWS BLOCK_SIZE * 4
 #define TEST_COLS BLOCK_SIZE * 4
 #define TEST_SEED 1
@@ -33,16 +34,6 @@ void print_hostname(int world_rank) {
 
 // Global vars
 MPI_Comm shmcomm;
-
-#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
-{
-   if (code != cudaSuccess)
-   {
-      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-      if (abort) exit(code);
-   }
-}
 
 void server_inc_ctrs(const block_matrix_t* bm, int* row_ctr, int* col_ctr){
 	if(*row_ctr < 0){
@@ -103,6 +94,7 @@ void server(int world_size){
 	}
 	bm_free(&final_bm);
 }
+
 
 // Increment rows and cols of 2 tiles
 void client_inc_tile_ctrs(const block_matrix_t* bm1, const block_matrix_t* bm2, int* row_ctr1, int* col_ctr1, int* row_ctr2, int* col_ctr2){
