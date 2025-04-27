@@ -4,6 +4,7 @@
 
 #define CLIENT_REQUEST_WL 0
 #define CLIENT_RETURN_WL 1
+#define CLIENT_EXIT 2
 
 /**
  * General handshake sequences

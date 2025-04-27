@@ -19,6 +19,7 @@
 #define TEST_COLS BLOCK_SIZE * 4
 #define TEST_SEED 1
 
+
 void print_hostname(int world_rank) {
     char hostname[HOST_NAME_MAX + 1];
 
@@ -59,15 +60,16 @@ void server_inc_ctrs(const block_matrix_t* bm, int* row_ctr, int* col_ctr){
 	}	
 }
 
-void server(){
+void server(int world_size){
 	std::map<int, int> running_wls;
 	block_matrix_t final_bm;
 	bm_create(&final_bm, TEST_ROWS, TEST_COLS);
 	printf("SERVER: m_blocks %d n_blocks %d\n", final_bm.m_blocks, final_bm.n_blocks);
 	int row_ctr = 0;
 	int col_ctr = 0;
+	int num_clients = world_size / NUM_ROLES;
 
-	while(row_ctr >= 0 || running_wls.size() > 0){
+	while(num_clients > 0){
 		int message;
 		MPI_Status status;
 		MPI_Recv(&message, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
@@ -77,7 +79,9 @@ void server(){
 		if(message == CLIENT_REQUEST_WL){
 			int coords[2] = {row_ctr, col_ctr};
 			MPI_Send(coords, 2, MPI_INT, source, tag, MPI_COMM_WORLD);
-			running_wls[source] = row_ctr * final_bm.n_blocks + col_ctr;
+			if(row_ctr >= 0 && col_ctr >= 0){
+				running_wls[source] = row_ctr * final_bm.n_blocks + col_ctr;
+			}
 			printf("SERVER: Client: %d RECIEVED ROW %d COL %d\n", source, row_ctr, col_ctr);
 			server_inc_ctrs(&final_bm, &row_ctr, &col_ctr);
 		}
@@ -90,7 +94,11 @@ void server(){
 
 			clock_t difference = clock() - before;
 			int msec = difference * 1000 / CLOCKS_PER_SEC;
+			running_wls.erase(source);
 			printf("SERVER: RECV BLOCK TIME %d ms\n", msec);
+		} else if(message == CLIENT_EXIT) {
+			printf("SERVER: Client: %d EXITING\n", source);
+			num_clients--;
 		}
 	}
 	bm_free(&final_bm);
@@ -117,7 +125,7 @@ void client(int world_rank){
 	bm_fill_matrix(&bm2, TEST_SEED); 
 	// Freeing gpu
 	printf("CLIENT %d: Freeing GPU\n", world_rank);
-	cudaFree(0);
+	gpuErrchk(cudaFree(0));
 	while(1){
 		// Get starting coords
 		int msg[1] = {CLIENT_REQUEST_WL};
@@ -222,8 +230,13 @@ void client(int world_rank){
 		cudaFree(&tile_C);
 
 	}
+
+	int msg[1] = {CLIENT_EXIT};
+	printf("CLIENT %d: Sending exit message\n", world_rank);
+	MPI_Send(msg, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
 	bm_free(&bm1);
 	bm_free(&bm2);
+
 }
 
 int main(int argc, char** argv){
@@ -243,7 +256,7 @@ int main(int argc, char** argv){
 
 	// Only 1 master between nodes
 	if(world_rank == 0){
-		server();			
+		server(world_size);			
 	}
 	else if(local_rank == 1){
 		client(world_rank);			

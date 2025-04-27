@@ -6,7 +6,7 @@
 
 #SBATCH --time=00:15:00   # walltime limit (HH:MM:SS)
 #SBATCH --nodes=2   # number of nodes
-#SBATCH --ntasks-per-node=4   # We use 2 tasks per node for this workload
+#SBATCH --ntasks-per-node=2   # We use 2 tasks per node for this workload
 #SBATCH --job-name="cuda_gemm"
 #SBATCH --mem=16G   # maximum memory per node
 #SBATCH --partition=instruction
@@ -16,7 +16,6 @@
 
 module load cuda openmpi
 
-export CUDA_VISIBLE_DEVICES=0
 # run 2 threads per node
 mpirun -np 4 ./mmult
 echo $(hostname)
