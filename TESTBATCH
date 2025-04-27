@@ -16,4 +16,5 @@
 
 module load cuda
 
+echo "hi1"
 ./a.out

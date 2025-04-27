@@ -19,6 +19,7 @@ __global__ void gemm_mnk_add(float *A, float *B, float *C, int m, int n, int k, 
 }
 
 int main() {
+    printf("HIHIHI!\n\n");
     int size_A = M * K * sizeof(float);
     int size_B = K * N * sizeof(float);
     int size_C = M * N * sizeof(float);
@@ -33,10 +34,12 @@ int main() {
     for (int i = 0; i < M * N; ++i) h_C[i] = 2.0f; // so we see accumulation
 
     float *d_A, *d_B, *d_C;
+    printf("before cudaMalloc\n");
     cudaMalloc(&d_A, size_A);
     cudaMalloc(&d_B, size_B);
     cudaMalloc(&d_C, size_C);
 
+    printf("before Memcpy\n");
     cudaMemcpy(d_A, h_A, size_A, cudaMemcpyHostToDevice);
     cudaMemcpy(d_B, h_B, size_B, cudaMemcpyHostToDevice);
     cudaMemcpy(d_C, h_C, size_C, cudaMemcpyHostToDevice);
@@ -45,10 +48,14 @@ int main() {
     dim3 gridDim((N + 15) / 16, (M + 15) / 16);
 
     float alpha = 1.0f, beta = 1.0f;
+
+    printf("before kernel\n");
     gemm_mnk_add<<<gridDim, blockDim>>>(d_A, d_B, d_C, M, N, K, alpha, beta);
 
+    printf("before memcpy back\n");
     cudaMemcpy(h_C, d_C, size_C, cudaMemcpyDeviceToHost);
 
+    printf("after memcpy back\n");
     // Check result
     printf("C[0][0] = %f (should be %f)\n", h_C[0], alpha * K + beta * 2.0f);
 
