@@ -3,7 +3,8 @@
 
 #include <stdlib.h>
 
-#define BLOCK_SIZE 12288
+//#define BLOCK_SIZE 12288
+#define BLOCK_SIZE 4096
 #define BLOCK_TOTAL_SIZE (BLOCK_SIZE*BLOCK_SIZE)
 
 

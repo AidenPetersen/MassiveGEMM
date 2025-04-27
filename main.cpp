@@ -13,11 +13,13 @@
 
 #define SERVER_RANK 0
 #define CLIENT_RANK 1
-#define DATA_SERVER_RANK 2
+#define DATASERVER_RANK 2
 
 #define NUM_ROLES 3
-#define TEST_ROWS BLOCK_SIZE * 4
-#define TEST_COLS BLOCK_SIZE * 4
+#define ROW_BLOCKS 3
+#define COL_BLOCKS 3
+#define TEST_ROWS (BLOCK_SIZE * ROW_BLOCKS)
+#define TEST_COLS (BLOCK_SIZE * COL_BLOCKS)
 #define TEST_SEED 1
 
 
@@ -35,16 +37,16 @@ void print_hostname(int world_rank) {
 // Global vars
 MPI_Comm shmcomm;
 
-void server_inc_ctrs(const block_matrix_t* bm, int* row_ctr, int* col_ctr){
+void server_inc_ctrs(int row_blocks, int col_blocks, int* row_ctr, int* col_ctr){
 	if(*row_ctr < 0){
 		return;
 	}
 	*col_ctr = *col_ctr + 1;
-	if(*col_ctr >= bm->n_blocks){
+	if(*col_ctr >= col_blocks){
 		*col_ctr = 0;
 		*row_ctr = *row_ctr + 1;	
 	}
-	if(*row_ctr >= bm->m_blocks){
+	if(*row_ctr >= row_blocks){
 		*col_ctr = -1;
 		*row_ctr = -1;
 
@@ -52,10 +54,6 @@ void server_inc_ctrs(const block_matrix_t* bm, int* row_ctr, int* col_ctr){
 }
 
 void server(int world_size){
-	std::map<int, int> running_wls;
-	block_matrix_t final_bm;
-	bm_create(&final_bm, TEST_ROWS, TEST_COLS);
-	printf("SERVER: m_blocks %d n_blocks %d\n", final_bm.m_blocks, final_bm.n_blocks);
 	int row_ctr = 0;
 	int col_ctr = 0;
 	int num_clients = world_size / NUM_ROLES;
@@ -70,29 +68,43 @@ void server(int world_size){
 		if(message == CLIENT_REQUEST_WL){
 			int coords[2] = {row_ctr, col_ctr};
 			MPI_Send(coords, 2, MPI_INT, source, tag, MPI_COMM_WORLD);
-			if(row_ctr >= 0 && col_ctr >= 0){
-				running_wls[source] = row_ctr * final_bm.n_blocks + col_ctr;
-			}
 			printf("SERVER: Client: %d RECIEVED ROW %d COL %d\n", source, row_ctr, col_ctr);
-			server_inc_ctrs(&final_bm, &row_ctr, &col_ctr);
+			server_inc_ctrs(ROW_BLOCKS, COL_BLOCKS, &row_ctr, &col_ctr);
 		}
-		else if(message == CLIENT_RETURN_WL){
-			int dst_block = running_wls[source];
-			printf("SERVER: Client: %d RECIEVED BLOCK AT %d\n", source, dst_block);
+		 else if(message == CLIENT_EXIT) {
+			printf("SERVER: Client: %d EXITING\n", source);
+			num_clients--;
+		}
+	}
+}
+
+void dataserver(int world_size){
+	block_matrix_t final_bm;
+	bm_create(&final_bm, TEST_ROWS, TEST_COLS);
+	int num_clients = world_size / NUM_ROLES;
+	while(num_clients > 0){
+		int message[3];
+		MPI_Status status;
+		MPI_Recv(message, 3, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+		int source = status.MPI_SOURCE;
+		int tag = status.MPI_TAG;
+		if(message[0] == CLIENT_RETURN_WL){
+			int dst_block = message[1] * COL_BLOCKS + message[2];
+			printf("DATASERVER: Client: %d RECIEVED BLOCK AT %d\n", source, dst_block);
 
 			clock_t before = clock();
 			MPI_Recv(final_bm.blocks[dst_block], BLOCK_TOTAL_SIZE, MPI_DOUBLE, source, tag, MPI_COMM_WORLD, &status);
 
 			clock_t difference = clock() - before;
 			int msec = difference * 1000 / CLOCKS_PER_SEC;
-			running_wls.erase(source);
-			printf("SERVER: RECV BLOCK TIME %d ms\n", msec);
-		} else if(message == CLIENT_EXIT) {
-			printf("SERVER: Client: %d EXITING\n", source);
+			printf("DATASERVER: RECV BLOCK TIME %d ms\n", msec);
+		} else if(message[0] == CLIENT_EXIT){
+			printf("DATASERVER: Client: %d EXITING\n", source);
 			num_clients--;
 		}
 	}
 	bm_free(&final_bm);
+
 }
 
 
@@ -122,7 +134,7 @@ void client(int world_rank){
 		// Get starting coords
 		int msg[1] = {CLIENT_REQUEST_WL};
 		printf("CLIENT %d: Requesting WL\n", world_rank);
-		MPI_Send(msg, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+		MPI_Send(msg, 1, MPI_INT, SERVER_RANK, 0, MPI_COMM_WORLD);
 
 		// Receive Coords
 		int start_row_col[2];
@@ -210,11 +222,11 @@ void client(int world_rank){
 		}
 		cudaMemcpy(output_block, tile_C, BLOCK_TOTAL_SIZE * sizeof(double), cudaMemcpyDeviceToHost);
 				
-		msg[0] = CLIENT_RETURN_WL;
+		int datamsg[3] = {CLIENT_RETURN_WL, srow, scol};
 		printf("CLIENT %d: Sending data ping\n", world_rank);
-		MPI_Send(msg, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+		MPI_Send(datamsg, 3, MPI_INT, DATASERVER_RANK, 0, MPI_COMM_WORLD);
 		printf("CLIENT %d: Sending data block\n", world_rank);
-		MPI_Send(output_block, BLOCK_TOTAL_SIZE, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+		MPI_Send(output_block, BLOCK_TOTAL_SIZE, MPI_DOUBLE, DATASERVER_RANK, 0, MPI_COMM_WORLD);
 		cudaFree(&tile_A1);
 		cudaFree(&tile_A2);
 		cudaFree(&tile_B1);
@@ -224,8 +236,10 @@ void client(int world_rank){
 	}
 
 	int msg[1] = {CLIENT_EXIT};
-	printf("CLIENT %d: Sending exit message\n", world_rank);
-	MPI_Send(msg, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+	int datamsg[3] = {CLIENT_EXIT, 0, 0};
+	printf("CLIENT %d: Sending exit messages\n", world_rank);
+	MPI_Send(msg, 1, MPI_INT, SERVER_RANK, 0, MPI_COMM_WORLD);
+	MPI_Send(datamsg, 3, MPI_INT, DATASERVER_RANK, 0, MPI_COMM_WORLD);
 	bm_free(&bm1);
 	bm_free(&bm2);
 
@@ -247,11 +261,12 @@ int main(int argc, char** argv){
 	MPI_Comm_rank(shmcomm, &local_rank);
 
 	// Only 1 master between nodes
-	if(world_rank == 0){
+	if(world_rank == SERVER_RANK){
 		server(world_size);			
-	}
-	else if(local_rank == 1){
+	} else if(local_rank == 1){
 		client(world_rank);			
+	} else if(world_rank == DATASERVER_RANK){
+		dataserver(world_size);			
 	}
 	printf("=== Process %d exiting ===\n", world_rank);
 	MPI_Finalize();
